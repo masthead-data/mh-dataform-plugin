@@ -214,6 +214,8 @@ function isArrayOrString(val) {
   return Array.isArray(val) || typeof val === 'string'
 }
 
+const ALLOWED_TYPES = new Set(['table', 'view', 'incremental', 'materialized_view'])
+
 /**
  * Helper to apply reservation to a single action
  * @param {Object} action - Dataform action object
@@ -226,8 +228,7 @@ function applyReservationToAction(action, actionToReservation) {
 
   // Check if it's a valid object to modify
   const hasPreOpsFn = typeof action.preOps === 'function'
-  const allowedTypes = ['table', 'view', 'incremental', 'materialized_view']
-  const hasType = proto.type && allowedTypes.includes(proto.type)
+  const hasType = proto.type && ALLOWED_TYPES.has(proto.type)
   const isOperation = !!proto.queries || !!action.contextableQueries
   const isAssertion = proto.type === 'assertion' || (action.constructor && action.constructor.name === 'Assertion')
 
