@@ -59,6 +59,12 @@ function preprocessConfig(config) {
       throw new Error(`Configuration item at index ${index} is missing 'reservation' property`)
     }
 
+    if (item.reservation !== null && item.reservation !== undefined) {
+      if (typeof item.reservation !== 'string' || !/^[a-zA-Z0-9\-_/]+$/.test(item.reservation)) {
+        throw new Error(`Configuration item at index ${index} has an invalid 'reservation' value. Only alphanumeric characters, hyphens, underscores, and slashes are allowed.`)
+      }
+    }
+
     if (!Array.isArray(item.actions)) {
       throw new Error(`Configuration item at index ${index} must have 'actions' as an array`)
     }
@@ -273,6 +279,38 @@ function applyReservationToAction(action, actionToReservation) {
           return originalQueriesFn.apply(this, [queriesArray])
         }
         action._queriesPatched = true
+      }
+
+      // Similarly for tables/views/incremental, preOps are often set via .preOps()
+      if (hasType && typeof action.preOps === 'function' && !action._preOpsPatched) {
+        const originalPreOpsFn = action.preOps
+        action.preOps = function (preOps) {
+          // Check for outer DECLARE before wrapping
+          if (hasOuterDeclare(preOps)) {
+            // If the incoming preOps has DECLARE, and we already injected the reservation string
+            // via the fallback `action.preOps(statement)`, we need to remove it from `contextablePreOps` or `proto.preOps`.
+            if (this.contextablePreOps) {
+              if (Array.isArray(this.contextablePreOps)) {
+                this.contextablePreOps = this.contextablePreOps.filter(stmt => stmt !== statement)
+              } else if (typeof this.contextablePreOps === 'string' && this.contextablePreOps === statement) {
+                this.contextablePreOps = []
+              }
+            } else if (this.proto && this.proto.preOps) {
+              if (Array.isArray(this.proto.preOps)) {
+                this.proto.preOps = this.proto.preOps.filter(stmt => stmt !== statement)
+              } else if (typeof this.proto.preOps === 'string' && this.proto.preOps === statement) {
+                this.proto.preOps = []
+              }
+            }
+            return originalPreOpsFn.apply(this, [preOps])
+          }
+
+          const preOpsArray = typeof preOps === 'function'
+            ? (ctx) => prependStatement(preOps(ctx), statement)
+            : prependStatement(preOps, statement)
+          return originalPreOpsFn.apply(this, [preOpsArray])
+        }
+        action._preOpsPatched = true
       }
 
       // Prefer modifying data structure directly if we know it's a safe type

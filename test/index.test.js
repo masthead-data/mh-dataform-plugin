@@ -133,6 +133,14 @@ describe('Dataform package', () => {
       expect(() => createReservationSetter([{ reservation: 'test', actions: 'not-array' }])).toThrow('Configuration item at index 0 must have \'actions\' as an array')
     })
 
+    test('should validate reservation format', () => {
+      expect(() => createReservationSetter([{ reservation: 'some\'; DROP TABLE users; --', actions: [] }])).toThrow('Configuration item at index 0 has an invalid \'reservation\' value. Only alphanumeric characters, hyphens, underscores, and slashes are allowed.')
+      expect(() => createReservationSetter([{ reservation: 'none', actions: [] }])).not.toThrow()
+      expect(() => createReservationSetter([{ reservation: 'projects/test/reservations/prod', actions: [] }])).not.toThrow()
+      expect(() => createReservationSetter([{ reservation: null, actions: [] }])).not.toThrow()
+      expect(() => createReservationSetter([{ reservation: undefined, actions: [] }])).not.toThrow()
+    })
+
     test('should return empty string for null context', () => {
       const result = reservation_setter(null)
       expect(result).toBe('')
