@@ -4,6 +4,12 @@ const path = require('path')
 const COMPILED_JSON_PATH = path.join(__dirname, '../test-project/compiled.json')
 const EXPECTED_RESERVATION = 'projects/my-test-project/locations/US/reservations/automated'
 
+function parseVersion(versionStr) {
+  if (!versionStr) return 0
+  const match = versionStr.match(/^(\d+)/)
+  return match ? parseInt(match[1], 10) : 0
+}
+
 function verify() {
   if (!fs.existsSync(COMPILED_JSON_PATH)) {
     console.error('Error: compiled.json not found. Run compilation first.')
@@ -23,11 +29,8 @@ function verify() {
 
   const compiled = JSON.parse(fileContent)
 
-  // Native reservation support (actionDescriptor.reservation) is pending a Dataform upstream PR.
-  // Once merged, replace the hardcoded false with:
-  //   const isNativeSupported = parseVersion(compiled.dataformCoreVersion || '0') >= 3
   const coreVersion = compiled.dataformCoreVersion || '0'
-  const isNativeSupported = false // TODO: enable once Dataform native reservation PR is merged
+  const isNativeSupported = parseVersion(coreVersion) >= 3
   console.log(`Dataform core version: ${coreVersion} — native reservation support: ${isNativeSupported}`)
 
   let errors = []
