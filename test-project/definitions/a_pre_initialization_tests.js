@@ -28,6 +28,14 @@ operate('test_operation')
 operate('test_single_op')
   .queries('SELECT 1 as single_val')
 
-// 6. Assertion (should be skipped)
+// 6. Operation with outer DECLARE (should be skipped — BigQuery requires DECLARE first)
+operate('test_op_outer_declare')
+  .queries('DECLARE x INT64 DEFAULT 0;\nSET x = 1;\nSELECT x;')
+
+// 7. Operation with DECLARE inside BEGIN (should get reservation — inner DECLARE is fine)
+operate('test_op_inner_declare')
+  .queries('BEGIN\n  DECLARE x INT64 DEFAULT 0;\n  SELECT x;\nEND;')
+
+// 8. Assertion (should be skipped)
 assert('test_assertion_skipped')
   .query('SELECT 1 as val WHERE false')

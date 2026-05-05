@@ -108,6 +108,18 @@ function verify() {
     }
   }
 
+  const checkNoReservationOp = (name) => {
+    const op = compiled.operations.find(o => o.target.name === name)
+    if (!op) {
+      errors.push(`Operation ${name} not found`)
+      return
+    }
+    const hasInjectedSql = op.queries && op.queries.some(q => q.includes('SET @@reservation='))
+    if (hasInjectedSql) {
+      errors.push(`Operation ${name} should NOT have a reservation injected, but found one in queries`)
+    }
+  }
+
   console.log('--- Verifying Dataform Package Integration ---')
 
   // Verify automated tests (Pre-initialization case)
@@ -116,6 +128,7 @@ function verify() {
   checkTable('test_view')
   checkOperation('test_operation', 'CREATE OR REPLACE TEMP TABLE temp_val AS SELECT 1 as val;')
   checkOperation('test_single_op', 'SELECT 1 as single_val')
+  checkOperation('test_op_inner_declare', 'BEGIN')
   checkAssertion('test_assertion_skipped')
 
   // Verify automated tests (Post-initialization case)
@@ -132,6 +145,7 @@ function verify() {
   // injected (BigQuery requires DECLARE to be the first statement in a script).
   console.log('Checking DECLARE-skip behavior...')
   checkNoReservation('test_incremental')
+  checkNoReservationOp('test_op_outer_declare')
 
   if (errors.length > 0) {
     console.error('FAIL: Verification errors found:')

@@ -40,6 +40,8 @@ const RESERVATION_CONFIG = [
       'masthead-data.test.test_incremental',
       'masthead-data.test.test_operation',
       'masthead-data.test.test_single_op',
+      'masthead-data.test.test_op_outer_declare',
+      'masthead-data.test.test_op_inner_declare',
       'masthead-data.test.test_assertion_skipped',
       'masthead-data.test.test_table_post',
       'masthead-data.test.test_operation_post',

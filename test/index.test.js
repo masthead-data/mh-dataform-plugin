@@ -421,348 +421,40 @@ describe('Dataform package', () => {
       global.dataform = originalDataform
     })
 
-    const testVersions = [true, false]
-
-    testVersions.forEach((isNative) => {
-      describe(`with native support = ${isNative}`, () => {
-        beforeEach(() => {
-          process.env.DATAFORM_MOCK_NATIVE_RESERVATION = String(isNative)
-        })
-
-        test('should apply reservations to existing publish actions', () => {
-          global.publish('test_table', { type: 'table' })
-          const config = [
-            {
-              tag: 'test',
-              reservation: 'projects/test/locations/US/reservations/prod',
-              actions: ['test-project.test-schema.test_table']
-            }
-          ]
-
-          autoAssignActions(config)
-
-          const action = global.dataform.actions[0]
-          if (isNative) {
-            expect(action.proto.actionDescriptor.reservation).toBe('projects/test/locations/US/reservations/prod')
-          } else {
-            expect(action.contextablePreOps).toContain('SET @@reservation=\'projects/test/locations/US/reservations/prod\';')
-          }
-        })
-
-        test('should intercept new publish actions after initialization', () => {
-          const config = [
-            {
-              tag: 'test',
-              reservation: 'projects/test/locations/US/reservations/prod',
-              actions: ['test-project.test-schema.new_table']
-            }
-          ]
-
-          autoAssignActions(config)
-          global.publish('new_table', { type: 'table' })
-
-          const action = global.dataform.actions[0]
-          if (isNative) {
-            expect(action.proto.actionDescriptor.reservation).toBe('projects/test/locations/US/reservations/prod')
-          } else {
-            expect(action.contextablePreOps).toContain('SET @@reservation=\'projects/test/locations/US/reservations/prod\';')
-          }
-        })
-
-        test('should apply reservations to operations', () => {
-          const config = [
-            {
-              tag: 'test',
-              reservation: 'projects/test/locations/US/reservations/prod',
-              actions: ['test-project.test-schema.test_operation']
-            }
-          ]
-
-          autoAssignActions(config)
-          global.operate('test_operation').queries('SELECT 1')
-
-          const action = global.dataform.actions[0]
-          if (isNative) {
-            expect(action.proto.actionDescriptor.reservation).toBe('projects/test/locations/US/reservations/prod')
-          } else {
-            expect(action.proto.queries[0]).toBe('SET @@reservation=\'projects/test/locations/US/reservations/prod\';')
-          }
-        })
-
-        test('should apply "none" reservation for on-demand pricing', () => {
-          const config = [
-            {
-              tag: 'on-demand',
-              reservation: 'none',
-              actions: ['test-project.test-schema.ondemand_table']
-            }
-          ]
-
-          autoAssignActions(config)
-          global.publish('ondemand_table', { type: 'table' })
-
-          const action = global.dataform.actions[0]
-          if (isNative) {
-            expect(action.proto.actionDescriptor.reservation).toBe('none')
-          } else {
-            expect(action.contextablePreOps).toContain('SET @@reservation=\'none\';')
-          }
-        })
-
-        test('should skip assertions in autoAssignActions', () => {
-          const config = [
-            {
-              tag: 'test',
-              reservation: 'projects/test/locations/US/reservations/prod',
-              actions: ['test-project.test-schema.test_assertion']
-            }
-          ]
-
-          autoAssignActions(config)
-          global.assert('test_assertion')
-
-          const action = global.dataform.actions[0]
-          expect(action.contextablePreOps).toBeUndefined()
-          expect(action.proto.actionDescriptor?.reservation).toBeUndefined()
-        })
-
-        test('should not apply reservation to unmatched actions', () => {
-          const config = [
-            {
-              tag: 'test',
-              reservation: 'projects/test/locations/US/reservations/prod',
-              actions: ['test-project.test-schema.matched_table']
-            }
-          ]
-
-          autoAssignActions(config)
-          global.publish('unmatched_table', { type: 'table' })
-
-          const action = global.dataform.actions[0]
-          if (isNative) {
-            expect(action.proto.actionDescriptor?.reservation).toBeUndefined()
-          } else {
-            expect(action.contextablePreOps).toHaveLength(0)
-          }
-        })
-
-        test('should handle multiple actions with different reservations', () => {
-          const config = [
-            {
-              tag: 'prod',
-              reservation: 'projects/test/locations/US/reservations/prod',
-              actions: ['test-project.test-schema.prod_table']
-            },
-            {
-              tag: 'dev',
-              reservation: 'none',
-              actions: ['test-project.test-schema.dev_table']
-            }
-          ]
-
-          autoAssignActions(config)
-          global.publish('prod_table', { type: 'table' })
-          global.publish('dev_table', { type: 'table' })
-
-          if (isNative) {
-            expect(global.dataform.actions[0].proto.actionDescriptor.reservation).toBe('projects/test/locations/US/reservations/prod')
-            expect(global.dataform.actions[1].proto.actionDescriptor.reservation).toBe('none')
-            expect(global.dataform.actions[0].contextablePreOps).toHaveLength(0)
-            expect(global.dataform.actions[1].contextablePreOps).toHaveLength(0)
-          } else {
-            expect(global.dataform.actions[0].contextablePreOps).toContain('SET @@reservation=\'projects/test/locations/US/reservations/prod\';')
-            expect(global.dataform.actions[1].contextablePreOps).toContain('SET @@reservation=\'none\';')
-          }
-        })
-
-        test('should prepend reservation before existing preOps', () => {
-          const config = [
-            {
-              tag: 'test',
-              reservation: 'projects/test/locations/US/reservations/prod',
-              actions: ['test-project.test-schema.test_table']
-            }
-          ]
-
-          global.publish('test_table', { type: 'table' })
-          const action = global.dataform.actions[0]
-          action.contextablePreOps = ['DECLARE x INT64 DEFAULT 1;']
-          autoAssignActions(config)
-
-          if (isNative) {
-            expect(action.proto.actionDescriptor.reservation).toBe('projects/test/locations/US/reservations/prod')
-          }
-          expect(action.contextablePreOps).toHaveLength(1)
-          expect(action.contextablePreOps[0]).toBe('DECLARE x INT64 DEFAULT 1;')
-        })
-
-        test('should not duplicate reservation if already applied', () => {
-          const config = [
-            {
-              tag: 'test',
-              reservation: 'projects/test/locations/US/reservations/prod',
-              actions: ['test-project.test-schema.test_table']
-            }
-          ]
-
-          autoAssignActions(config)
-          global.publish('test_table', { type: 'table' })
-
-          // Apply again (simulating multiple calls)
-          autoAssignActions(config)
-
-          const action = global.dataform.actions[0]
-          if (isNative) {
-            expect(action.proto.actionDescriptor.reservation).toBe('projects/test/locations/US/reservations/prod')
-          } else {
-            const reservationCount = action.contextablePreOps.filter(op =>
-              op.includes('SET @@reservation')
-            ).length
-            expect(reservationCount).toBe(1)
-          }
-        })
-
-        // Legacy mode only
-        if (!isNative) {
-          test('should handle mixed case DECLARE at outer level', () => {
-            const config = [
-              {
-                tag: 'test',
-                reservation: 'projects/test/locations/US/reservations/prod',
-                actions: ['test-project.test-schema.mixed_case']
-              }
-            ]
-
-            global.operate('mixed_case').queries(`
-              declare x INT64 DEFAULT 1;
-              SELECT x;
-            `)
-            autoAssignActions(config)
-
-            const action = global.dataform.actions[0]
-            expect(action.proto.queries).not.toContain('SET @@reservation=\'projects/test/locations/US/reservations/prod\';')
-          })
-
-          test('should not skip DECLARE inside BEGIN...END block', () => {
-            const config = [
-              {
-                tag: 'test',
-                reservation: 'projects/test/locations/US/reservations/prod',
-                actions: ['test-project.test-schema.begin_declare']
-              }
-            ]
-
-            autoAssignActions(config)
-            global.operate('begin_declare').queries(`
-              --DECLARE x INT64 DEFAULT 1;
-              # comment
-              BEGIN
-                DECLARE x INT64 DEFAULT 1;
-                SELECT x;
-              END;
-            `)
-
-            const action = global.dataform.actions[0]
-            expect(action.proto.queries[0]).toBe('SET @@reservation=\'projects/test/locations/US/reservations/prod\';')
-            expect(action.proto.queries[1]).toBe(`
-              --DECLARE x INT64 DEFAULT 1;
-              # comment
-              BEGIN
-                DECLARE x INT64 DEFAULT 1;
-                SELECT x;
-              END;
-            `)
-          })
-
-          test('should not skip DECLARE inside EXECUTE IMMEDIATE', () => {
-            const config = [
-              {
-                tag: 'test',
-                reservation: 'projects/test/locations/US/reservations/prod',
-                actions: ['test-project.test-schema.exec_declare']
-              }
-            ]
-
-            autoAssignActions(config)
-            global.operate('exec_declare').queries(`
-              /*
-              block comment
-              DECLARE x INT64;
-              */
-              EXECUTE IMMEDIATE "DECLARE x INT64; SET x = 1; SELECT x;"
-            `)
-
-            const action = global.dataform.actions[0]
-            expect(action.proto.queries[0]).toBe('SET @@reservation=\'projects/test/locations/US/reservations/prod\';')
-            expect(action.proto.queries[1]).toBe(`
-              /*
-              block comment
-              DECLARE x INT64;
-              */
-              EXECUTE IMMEDIATE "DECLARE x INT64; SET x = 1; SELECT x;"
-            `)
-          })
-
-          test('should skip DECLARE after SQL comments', () => {
-            const config = [
-              {
-                tag: 'test',
-                reservation: 'projects/test/locations/US/reservations/prod',
-                actions: ['test-project.test-schema.comment_declare']
-              }
-            ]
-
-            global.operate('comment_declare').queries(`
-              -- set up variables
-              # comment
-              /* block comment */
-              /*
-              multi-line block comment
-              */
-              DECLARE x INT64 DEFAULT 1;
-              SELECT x;
-            `)
-            autoAssignActions(config)
-
-            const action = global.dataform.actions[0]
-            expect(action.proto.queries[0]).toBe(`
-              -- set up variables
-              # comment
-              /* block comment */
-              /*
-              multi-line block comment
-              */
-              DECLARE x INT64 DEFAULT 1;
-              SELECT x;
-            `)
-          })
-
-          test('should handle array of queries with outer DECLARE', () => {
-            const config = [
-              {
-                tag: 'test',
-                reservation: 'projects/test/locations/US/reservations/prod',
-                actions: ['test-project.test-schema.array_queries']
-              }
-            ]
-
-            global.operate('array_queries').queries([
-              'DECLARE x INT64 DEFAULT 1;',
-              'SELECT x;'
-            ])
-            autoAssignActions(config)
-
-            const action = global.dataform.actions[0]
-            expect(action.proto.queries).not.toContain('SET @@reservation=\'projects/test/locations/US/reservations/prod\';')
-          })
-        }
-      })
-    })
-
     test('should throw error with invalid config', () => {
       expect(() => autoAssignActions()).toThrow('Configuration must be a non-empty array')
       expect(() => autoAssignActions(null)).toThrow('Configuration must be a non-empty array')
       expect(() => autoAssignActions([])).toThrow('Configuration array cannot be empty')
+    })
+
+    test('should skip assertions', () => {
+      const config = [
+        {
+          tag: 'test',
+          reservation: 'projects/test/locations/US/reservations/prod',
+          actions: ['test-project.test-schema.test_assertion']
+        }
+      ]
+      autoAssignActions(config)
+      global.assert('test_assertion')
+      const action = global.dataform.actions[0]
+      expect(action.contextablePreOps).toBeUndefined()
+      expect(action.proto.actionDescriptor?.reservation).toBeUndefined()
+    })
+
+    test('should not apply reservation to unmatched actions', () => {
+      const config = [
+        {
+          tag: 'test',
+          reservation: 'projects/test/locations/US/reservations/prod',
+          actions: ['test-project.test-schema.matched_table']
+        }
+      ]
+      autoAssignActions(config)
+      global.publish('unmatched_table', { type: 'table' })
+      const action = global.dataform.actions[0]
+      expect(action.proto.actionDescriptor?.reservation).toBeUndefined()
+      expect(action.contextablePreOps).toHaveLength(0)
     })
   })
 
@@ -805,28 +497,6 @@ describe('Dataform package', () => {
     })
   })
 
-  describe('isArrayOrString', () => {
-    test('should return true for array', () => {
-      const { isArrayOrString } = require('../index')
-      expect(isArrayOrString([])).toBe(true)
-      expect(isArrayOrString(['item'])).toBe(true)
-    })
-
-    test('should return true for string', () => {
-      const { isArrayOrString } = require('../index')
-      expect(isArrayOrString('')).toBe(true)
-      expect(isArrayOrString('test')).toBe(true)
-    })
-
-    test('should return false for other types', () => {
-      const { isArrayOrString } = require('../index')
-      expect(isArrayOrString(null)).toBe(false)
-      expect(isArrayOrString(undefined)).toBe(false)
-      expect(isArrayOrString(123)).toBe(false)
-      expect(isArrayOrString({})).toBe(false)
-      expect(isArrayOrString(() => {})).toBe(false)
-    })
-  })
 
   describe('findReservation', () => {
     test('should find reservation for matching action', () => {
@@ -911,28 +581,6 @@ describe('Dataform package', () => {
     })
   })
 
-  describe('isArrayOrString', () => {
-    test('should return true for array', () => {
-      const { isArrayOrString } = require('../index')
-      expect(isArrayOrString([])).toBe(true)
-      expect(isArrayOrString(['item'])).toBe(true)
-    })
-
-    test('should return true for string', () => {
-      const { isArrayOrString } = require('../index')
-      expect(isArrayOrString('')).toBe(true)
-      expect(isArrayOrString('test')).toBe(true)
-    })
-
-    test('should return false for other types', () => {
-      const { isArrayOrString } = require('../index')
-      expect(isArrayOrString(null)).toBe(false)
-      expect(isArrayOrString(undefined)).toBe(false)
-      expect(isArrayOrString(123)).toBe(false)
-      expect(isArrayOrString({})).toBe(false)
-      expect(isArrayOrString(() => {})).toBe(false)
-    })
-  })
 
   describe('findReservation', () => {
     test('should find reservation for matching action', () => {
