@@ -2,7 +2,8 @@ const {
   createReservationSetter,
   getActionName,
   autoAssignActions,
-  isNativeReservationSupported
+  isNativeReservationSupported,
+  resetNativeReservationSupportCache
 } = require('../index')
 
 /**
@@ -61,6 +62,10 @@ describe('Dataform package', () => {
     beforeAll(() => {
       originalEnv = process.env.DATAFORM_MOCK_NATIVE_RESERVATION
       process.env.DATAFORM_MOCK_NATIVE_RESERVATION = 'false'
+    })
+
+    beforeEach(() => {
+      resetNativeReservationSupportCache()
     })
 
     afterAll(() => {
@@ -223,6 +228,7 @@ describe('Dataform package', () => {
     beforeEach(() => {
       originalEnv = process.env.DATAFORM_MOCK_NATIVE_RESERVATION
       originalDataform = global.dataform
+      resetNativeReservationSupportCache()
     })
 
     afterEach(() => {
@@ -267,6 +273,10 @@ describe('Dataform package', () => {
     beforeAll(() => {
       originalEnv = process.env.DATAFORM_MOCK_NATIVE_RESERVATION
       process.env.DATAFORM_MOCK_NATIVE_RESERVATION = 'false'
+    })
+
+    beforeEach(() => {
+      resetNativeReservationSupportCache()
     })
 
     afterAll(() => {
@@ -427,6 +437,7 @@ describe('Dataform package', () => {
       describe(`with native support = ${isNative}`, () => {
         beforeEach(() => {
           process.env.DATAFORM_MOCK_NATIVE_RESERVATION = String(isNative)
+          resetNativeReservationSupportCache()
         })
 
         test('should apply reservations to existing publish actions', () => {
