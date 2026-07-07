@@ -275,46 +275,90 @@ function applyReservationToAction(action, actionToReservation) {
         action._queriesPatched = true
       }
 
-      // Prefer modifying data structure directly if we know it's a safe type
-      // This handles both Builders (via .proto) and Compiled Objects (direct)
+      // For table/view/incremental builders, preOps and the main query are supplied
+      // AFTER the builder is created, via chained .preOps()/.query() calls (e.g.
+      // `publish(...).preOps('DECLARE ...').query(...)`). Injecting the reservation
+      // eagerly at creation time puts it BEFORE a later DECLARE, which BigQuery
+      // rejects (a DECLARE must be the first statement in a script). Mirror the
+      // operations `.queries()` patch above: intercept both methods and inject the
+      // reservation only when there is no outer DECLARE — never inject-then-strip.
+      // Every valid table/view builder exposes both .preOps() and .query(); when it
+      // does, we defer to this lazy path and skip the direct injection below.
+      if (hasType && typeof action.preOps === 'function' && typeof action.query === 'function' && !action._reservationPatched) {
+        const originalPreOpsFn = action.preOps
+        const originalQueryFn = action.query
 
-      // 1. Try contextablePreOps (Tables/Views Builders before resolution)
-      if (action.contextablePreOps) {
-        if (!hasOuterDeclare(action.contextablePreOps)) {
-          action.contextablePreOps = prependStatement(action.contextablePreOps, statement)
-        }
-      }
-      // 2. Try contextableQueries (Operations Builders before resolution)
-      else if (action.contextableQueries) {
-        // Skip if there is an outer DECLARE
-        if (!hasOuterDeclare(action.contextableQueries)) {
-          action.contextableQueries = prependStatement(action.contextableQueries, statement)
-        }
-      }
-      // 3. Try proto.preOps (Compiled Tables/Views or Resolved Builders)
-      else if (hasType) {
-        if (!hasOuterDeclare(proto.preOps || [])) {
-          if (!proto.preOps) {
-            proto.preOps = []
+        action.preOps = function (ops) {
+          if (hasOuterDeclare(ops)) {
+            // User supplies their own leading DECLARE — leave it untouched.
+            action._reservationHandled = true
+            return originalPreOpsFn.apply(this, arguments)
           }
+          // No DECLARE: prepend the reservation to the user's preOps so it runs first.
+          const withReservation = typeof ops === 'function'
+            ? (ctx) => prependStatement(ops(ctx), statement)
+            : prependStatement(ops, statement)
+          action._reservationHandled = true
+          return originalPreOpsFn.apply(this, [withReservation])
+        }
 
-          if (isArrayOrString(proto.preOps)) {
-            proto.preOps = prependStatement(proto.preOps, statement)
-          } else if (hasPreOpsFn) {
-            action.preOps(statement)
+        action.query = function () {
+          // If the builder had no preOps at all, there is no DECLARE to worry about,
+          // so inject the reservation now (equivalent to the operations queries patch).
+          if (!action._reservationHandled) {
+            originalPreOpsFn.call(action, statement)
+            action._reservationHandled = true
+          }
+          return originalQueryFn.apply(this, arguments)
+        }
+
+        action._reservationPatched = true
+      }
+
+      // Direct injection for compiled objects and already-resolved builders that do
+      // not expose the chained .preOps()/.query() API handled above.
+      // Skip entirely when the lazy table/view patch is installed to avoid double
+      // injection (the reservation is added inside .preOps()/.query() instead).
+      if (!action._reservationPatched) {
+
+        // 1. Try contextablePreOps (Tables/Views Builders before resolution)
+        if (action.contextablePreOps) {
+          if (!hasOuterDeclare(action.contextablePreOps)) {
+            action.contextablePreOps = prependStatement(action.contextablePreOps, statement)
           }
         }
-      }
-      // 4. Try proto.queries (Compiled Operations or Resolved Builders)
-      else if (proto.queries) {
+        // 2. Try contextableQueries (Operations Builders before resolution)
+        else if (action.contextableQueries) {
         // Skip if there is an outer DECLARE
-        if (!hasOuterDeclare(proto.queries)) {
-          proto.queries = prependStatement(proto.queries, statement)
+          if (!hasOuterDeclare(action.contextableQueries)) {
+            action.contextableQueries = prependStatement(action.contextableQueries, statement)
+          }
         }
-      }
-      // 5. Fallback to function API (likely Tables/Views)
-      else if (hasPreOpsFn) {
-        action.preOps(statement)
+        // 3. Try proto.preOps (Compiled Tables/Views or Resolved Builders)
+        else if (hasType) {
+          if (!hasOuterDeclare(proto.preOps || [])) {
+            if (!proto.preOps) {
+              proto.preOps = []
+            }
+
+            if (isArrayOrString(proto.preOps)) {
+              proto.preOps = prependStatement(proto.preOps, statement)
+            } else if (hasPreOpsFn) {
+              action.preOps(statement)
+            }
+          }
+        }
+        // 4. Try proto.queries (Compiled Operations or Resolved Builders)
+        else if (proto.queries) {
+        // Skip if there is an outer DECLARE
+          if (!hasOuterDeclare(proto.queries)) {
+            proto.queries = prependStatement(proto.queries, statement)
+          }
+        }
+        // 5. Fallback to function API (likely Tables/Views)
+        else if (hasPreOpsFn) {
+          action.preOps(statement)
+        }
       }
     }
   }
