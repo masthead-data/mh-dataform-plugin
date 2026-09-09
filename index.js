@@ -275,6 +275,31 @@ function applyReservationToAction(action, actionToReservation) {
         action._queriesPatched = true
       }
 
+      // For table builders, preOps might be set AFTER the builder is created via .preOps()
+      // We monkeypatch the .preOps() method to ensure reservations are properly handled
+      if (hasPreOpsFn && !action._preOpsPatched) {
+        const originalPreOpsFn = action.preOps
+        action.preOps = function (preOps) {
+          if (this._defaultReservationApplied) {
+            this._defaultReservationApplied = false
+            if (Array.isArray(this.contextablePreOps)) {
+              this.contextablePreOps.length = 0
+            }
+          }
+
+          // Check for outer DECLARE before wrapping
+          if (hasOuterDeclare(preOps)) {
+            return originalPreOpsFn.apply(this, [preOps])
+          }
+
+          const preOpsArray = typeof preOps === 'function'
+            ? (ctx) => prependStatement(preOps(ctx), statement)
+            : prependStatement(preOps, statement)
+          return originalPreOpsFn.apply(this, [preOpsArray])
+        }
+        action._preOpsPatched = true
+      }
+
       // Prefer modifying data structure directly if we know it's a safe type
       // This handles both Builders (via .proto) and Compiled Objects (direct)
 
@@ -282,6 +307,7 @@ function applyReservationToAction(action, actionToReservation) {
       if (action.contextablePreOps) {
         if (!hasOuterDeclare(action.contextablePreOps)) {
           action.contextablePreOps = prependStatement(action.contextablePreOps, statement)
+          action._defaultReservationApplied = true
         }
       }
       // 2. Try contextableQueries (Operations Builders before resolution)

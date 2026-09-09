@@ -7,8 +7,5 @@
   },
   "devDependencies": {
     "@dataform/cli": "3.0.69"
-  },
-  "overrides": {
-    "parse-duration": "^2.1.8"
   }
 }

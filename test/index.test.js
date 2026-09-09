@@ -370,7 +370,10 @@ describe('Dataform package', () => {
               schema: config?.schema || 'test-schema'
             }
           },
-          preOps: jest.fn(),
+          preOps: jest.fn(function (p) {
+            this.contextablePreOps.push(p)
+            return this
+          }),
           contextablePreOps: []
         }
         global.dataform.actions.push(action)
@@ -594,6 +597,79 @@ describe('Dataform package', () => {
           }
           expect(action.contextablePreOps).toHaveLength(1)
           expect(action.contextablePreOps[0]).toBe('DECLARE x INT64 DEFAULT 1;')
+        })
+
+        test('should skip reservation when chained preOps starts with DECLARE', () => {
+          const config = [
+            {
+              tag: 'test',
+              reservation: 'projects/test/locations/US/reservations/prod',
+              actions: ['test-project.test-schema.chained_declare']
+            }
+          ]
+
+          autoAssignActions(config)
+          global.publish('chained_declare', { type: 'table' })
+            .preOps('DECLARE x INT64 DEFAULT 1;')
+
+          const action = global.dataform.actions[0]
+          if (isNative) {
+            expect(action.proto.actionDescriptor.reservation).toBe('projects/test/locations/US/reservations/prod')
+          }
+          expect(action.contextablePreOps).toHaveLength(1)
+          expect(action.contextablePreOps[0]).toBe('DECLARE x INT64 DEFAULT 1;')
+        })
+
+        test('should prepend reservation when chained preOps does not have DECLARE', () => {
+          const config = [
+            {
+              tag: 'test',
+              reservation: 'projects/test/locations/US/reservations/prod',
+              actions: ['test-project.test-schema.chained_preops']
+            }
+          ]
+
+          autoAssignActions(config)
+          global.publish('chained_preops', { type: 'table' })
+            .preOps('CREATE TEMP TABLE t AS SELECT 1;')
+
+          const action = global.dataform.actions[0]
+          if (isNative) {
+            expect(action.proto.actionDescriptor.reservation).toBe('projects/test/locations/US/reservations/prod')
+          } else {
+            expect(action.contextablePreOps).toHaveLength(1)
+            expect(action.contextablePreOps[0]).toEqual([
+              'SET @@reservation=\'projects/test/locations/US/reservations/prod\';',
+              'CREATE TEMP TABLE t AS SELECT 1;'
+            ])
+          }
+        })
+
+        test('should prepend reservation when chained preOps is a function without DECLARE', () => {
+          const config = [
+            {
+              tag: 'test',
+              reservation: 'projects/test/locations/US/reservations/prod',
+              actions: ['test-project.test-schema.chained_fn_preops']
+            }
+          ]
+
+          autoAssignActions(config)
+          global.publish('chained_fn_preops', { type: 'table' })
+            .preOps(() => 'SELECT 1;')
+
+          const action = global.dataform.actions[0]
+          if (isNative) {
+            expect(action.proto.actionDescriptor.reservation).toBe('projects/test/locations/US/reservations/prod')
+          } else {
+            expect(action.contextablePreOps).toHaveLength(1)
+            expect(typeof action.contextablePreOps[0]).toBe('function')
+            const result = action.contextablePreOps[0]({})
+            expect(result).toEqual([
+              'SET @@reservation=\'projects/test/locations/US/reservations/prod\';',
+              'SELECT 1;'
+            ])
+          }
         })
 
         test('should not duplicate reservation if already applied', () => {
