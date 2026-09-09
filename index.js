@@ -275,25 +275,6 @@ function applyReservationToAction(action, actionToReservation) {
         action._queriesPatched = true
       }
 
-      // Similarly monkeypatch .preOps() on table builders in case preOps are set AFTER builder creation
-      if (hasPreOpsFn && !action._preOpsPatched) {
-        const originalPreOpsFn = action.preOps
-        action.preOps = function (preOps) {
-          if (hasOuterDeclare(preOps)) {
-            // If preOps starts with DECLARE, remove any previously injected reservation
-            if (Array.isArray(action.contextablePreOps)) {
-              action.contextablePreOps = action.contextablePreOps.filter(p => typeof p !== 'string' || !p.includes(statement))
-            }
-            if (proto.preOps && Array.isArray(proto.preOps)) {
-              proto.preOps = proto.preOps.filter(p => typeof p !== 'string' || !p.includes(statement))
-            }
-            return originalPreOpsFn.apply(this, [preOps])
-          }
-          return originalPreOpsFn.apply(this, [preOps])
-        }
-        action._preOpsPatched = true
-      }
-
       // Prefer modifying data structure directly if we know it's a safe type
       // This handles both Builders (via .proto) and Compiled Objects (direct)
 
