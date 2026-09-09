@@ -755,6 +755,103 @@ describe('Dataform package', () => {
             const action = global.dataform.actions[0]
             expect(action.proto.queries).not.toContain('SET @@reservation=\'projects/test/locations/US/reservations/prod\';')
           })
+
+          // Table/view builders supply their preOps and query AFTER creation via
+          // chained .preOps()/.query() calls. The reservation is injected at
+          // creation time by intercepting those methods (mirroring the operations
+          // .queries() patch), so it is never emitted before a later DECLARE and
+          // nothing is stripped afterward. These tests exercise that path with a
+          // realistic builder that writes through to proto.preOps / proto.query.
+          describe('chained .preOps()/.query() builder interception', () => {
+            let originalPublishBuilder
+
+            // A builder that mimics a real Dataform publish() action: preOps and
+            // query are chained on after creation and stored on the proto.
+            const makeBuilder = (name) => {
+              const action = {
+                proto: {
+                  type: 'table',
+                  target: { name, database: 'test-project', schema: 'test-schema' }
+                },
+                preOps: function (ops) {
+                  this.proto.preOps = Array.isArray(ops) ? ops : [ops]
+                  return this
+                },
+                query: function (q) {
+                  this.proto.query = q
+                  return this
+                }
+              }
+              global.dataform.actions.push(action)
+              return action
+            }
+
+            beforeEach(() => {
+              originalPublishBuilder = global.publish
+              global.publish = jest.fn((name) => makeBuilder(name))
+            })
+
+            afterEach(() => {
+              global.publish = originalPublishBuilder
+            })
+
+            const reservationStatement = 'SET @@reservation=\'projects/test/locations/US/reservations/prod\';'
+            const builderConfig = [
+              {
+                tag: 'test',
+                reservation: 'projects/test/locations/US/reservations/prod',
+                actions: [
+                  'test-project.test-schema.plain_table',
+                  'test-project.test-schema.declare_table',
+                  'test-project.test-schema.normal_preops_table'
+                ]
+              }
+            ]
+
+            test('should inject reservation via .query() when the builder has no preOps', () => {
+              autoAssignActions(builderConfig)
+              const builder = global.publish('plain_table')
+              builder.query('SELECT 1')
+
+              const action = global.dataform.actions[0]
+              expect(action.proto.preOps).toEqual([reservationStatement])
+            })
+
+            test('should NOT inject reservation when preOps has an outer DECLARE', () => {
+              autoAssignActions(builderConfig)
+              const builder = global.publish('declare_table')
+              builder.preOps('DECLARE x INT64 DEFAULT 1;')
+              builder.query('SELECT x')
+
+              const action = global.dataform.actions[0]
+              // DECLARE must stay the first statement; reservation is never added.
+              expect(action.proto.preOps).toEqual(['DECLARE x INT64 DEFAULT 1;'])
+              expect(action.proto.preOps).not.toContain(reservationStatement)
+            })
+
+            test('should prepend reservation before non-DECLARE preOps', () => {
+              autoAssignActions(builderConfig)
+              const builder = global.publish('normal_preops_table')
+              builder.preOps('CREATE TEMP FUNCTION f() AS (1);')
+              builder.query('SELECT f()')
+
+              const action = global.dataform.actions[0]
+              expect(action.proto.preOps).toEqual([
+                reservationStatement,
+                'CREATE TEMP FUNCTION f() AS (1);'
+              ])
+            })
+
+            test('should not touch preOps for an unconfigured builder', () => {
+              autoAssignActions(builderConfig)
+              const builder = global.publish('unconfigured_table')
+              builder.preOps('DECLARE y INT64 DEFAULT 2;')
+              builder.query('SELECT y')
+
+              const action = global.dataform.actions[0]
+              expect(action.proto.preOps).toEqual(['DECLARE y INT64 DEFAULT 2;'])
+            })
+          })
         }
       })
     })
