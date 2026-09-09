@@ -128,15 +128,25 @@ let hasNativeReservationSupportCache = null
  * @returns {boolean} True if native reservation supported
  */
 function isNativeReservationSupported() {
-  if (process.env.DATAFORM_MOCK_NATIVE_RESERVATION === 'true') return true
-  if (process.env.DATAFORM_MOCK_NATIVE_RESERVATION === 'false') return false
-
   if (hasNativeReservationSupportCache !== null) {
     return hasNativeReservationSupportCache
   }
 
+  if (process.env.DATAFORM_MOCK_NATIVE_RESERVATION === 'true') {
+    hasNativeReservationSupportCache = true
+    return true
+  }
+  if (process.env.DATAFORM_MOCK_NATIVE_RESERVATION === 'false') {
+    hasNativeReservationSupportCache = false
+    return false
+  }
+
   hasNativeReservationSupportCache = false
   return false
+}
+
+function resetNativeReservationSupportCache() {
+  hasNativeReservationSupportCache = null
 }
 
 /**
@@ -376,5 +386,6 @@ module.exports = {
   prependStatement,
   isArrayOrString,
   findReservation,
-  isNativeReservationSupported
+  isNativeReservationSupported,
+  resetNativeReservationSupportCache
 }
